@@ -1,19 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { tools } from '../../lib/tools';
 
 function getInitialOptions(tool) {
   if (!tool?.options?.length) return {};
-  return Object.fromEntries(
-    tool.options.map((opt) => [opt.key, opt.defaultValue ?? ''])
-  );
+  return Object.fromEntries(tool.options.map((opt) => [opt.key, opt.defaultValue ?? '']));
 }
 
 function buildTextPayload(tool, input, optionValues) {
-  if (tool.mode === 'text') {
-    return input;
-  }
+  if (tool.mode === 'text') return input;
 
   const cleaned = {};
 
@@ -59,26 +56,22 @@ function getAcceptValue(slug) {
     return 'image/*,.heic,.heif,.webp,.jpg,.jpeg,.png';
   }
 
-  if (
-    ['pdf-merge', 'pdf-split', 'pdf-compress', 'pdf-unlock', 'pdf-to-images'].includes(slug)
-  ) {
+  if (['pdf-merge', 'pdf-split', 'pdf-compress', 'pdf-unlock', 'pdf-to-images'].includes(slug)) {
     return '.pdf,application/pdf';
   }
 
-  if (
-    ['video-to-gif', 'video-compressor', 'video-thumbnail-generator'].includes(slug)
-  ) {
+  if (['video-to-gif', 'video-compressor', 'video-thumbnail-generator'].includes(slug)) {
     return 'video/*';
   }
 
   return undefined;
 }
 
-export default function ToolPage({ params }) {
-  const tool = useMemo(
-    () => tools.find((t) => t.slug === params.slug),
-    [params.slug]
-  );
+export default function ToolPage() {
+  const params = useParams();
+  const slug = Array.isArray(params?.slug) ? params.slug[0] : params?.slug;
+
+  const tool = useMemo(() => tools.find((t) => t.slug === slug), [slug]);
 
   const [input, setInput] = useState('');
   const [files, setFiles] = useState([]);
@@ -100,13 +93,11 @@ export default function ToolPage({ params }) {
       setDownloadUrl('');
       setDownloadName('');
     }
-  }, [tool?.slug]);
+  }, [tool]);
 
   useEffect(() => {
     return () => {
-      if (downloadUrl) {
-        URL.revokeObjectURL(downloadUrl);
-      }
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
     };
   }, [downloadUrl]);
 
@@ -114,21 +105,21 @@ export default function ToolPage({ params }) {
     return (
       <div className="page">
         <h1>Tool not found</h1>
+        <p>Slug: {String(slug || '')}</p>
       </div>
     );
   }
 
-  const updateOption = (key, value, type) => {
+  function updateOption(key, value) {
     setOptionValues((prev) => ({
       ...prev,
-      [key]:
-        type === 'boolean'
-          ? value
-          : value,
+      [key]: value,
     }));
-  };
+  }
 
-  const run = async () => {
+  async function run() {
+    if (running) return;
+
     setRunning(true);
     setResult('Working...');
 
@@ -143,7 +134,7 @@ export default function ToolPage({ params }) {
 
       if (tool.mode === 'file') {
         if (!files.length) {
-          setResult('Please choose a file before running this tool.');
+          setResult('Please choose a file first.');
           setRunning(false);
           return;
         }
@@ -151,6 +142,10 @@ export default function ToolPage({ params }) {
         for (const file of files) {
           body.append('file', file);
         }
+      } else if (!input.trim()) {
+        setResult('Please enter some input first.');
+        setRunning(false);
+        return;
       }
 
       body.append('slug', tool.slug);
@@ -168,7 +163,7 @@ export default function ToolPage({ params }) {
           const data = await res.json();
           setResult(String(data?.error || 'Tool request failed.'));
         } else {
-          setResult('Tool request failed.');
+          setResult(`Tool request failed with status ${res.status}.`);
         }
         return;
       }
@@ -182,7 +177,6 @@ export default function ToolPage({ params }) {
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-
       const contentDisposition = res.headers.get('content-disposition') || '';
       const match = contentDisposition.match(/filename="([^"]+)"/i);
       const inferredName = match?.[1] || `tool-output-${tool.slug}`;
@@ -191,15 +185,11 @@ export default function ToolPage({ params }) {
       setDownloadName(inferredName);
       setResult(`Download ready: ${inferredName}`);
     } catch (err) {
-      setResult(
-        err instanceof Error
-          ? `Tool failed: ${err.message}`
-          : 'Tool failed due to an unexpected error.'
-      );
+      setResult(err instanceof Error ? `Tool failed: ${err.message}` : 'Tool failed unexpectedly.');
     } finally {
       setRunning(false);
     }
-  };
+  }
 
   return (
     <div className="page">
@@ -231,7 +221,7 @@ export default function ToolPage({ params }) {
                       <input
                         type="checkbox"
                         checked={Boolean(optionValues[opt.key])}
-                        onChange={(e) => updateOption(opt.key, e.target.checked, opt.type)}
+                        onChange={(e) => updateOption(opt.key, e.target.checked)}
                       />
                     ) : (
                       <input
@@ -241,7 +231,7 @@ export default function ToolPage({ params }) {
                         max={opt.max}
                         step={opt.step}
                         placeholder={opt.placeholder}
-                        onChange={(e) => updateOption(opt.key, e.target.value, opt.type)}
+                        onChange={(e) => updateOption(opt.key, e.target.value)}
                       />
                     )}
                   </label>
@@ -258,24 +248,11 @@ export default function ToolPage({ params }) {
                 onChange={(e) => setFiles(Array.from(e.target.files || []))}
               />
             </label>
-
-            {!!files.length && (
-              <div className="selectedFiles">
-                <strong>Selected:</strong>
-                <ul>
-                  {files.map((file) => (
-                    <li key={`${file.name}-${file.size}-${file.lastModified}`}>
-                      {file.name} ({Math.ceil(file.size / 1024)} KB)
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </>
         )}
 
-        <button className="btn" onClick={run} disabled={running}>
-          {running ? 'Running...' : 'Run tool'}
+        <button type="button" className="btn" onClick={run} disabled={running}>
+          {running ? 'Running...' : 'Run Tool'}
         </button>
 
         {downloadUrl && (
