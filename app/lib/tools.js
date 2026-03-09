@@ -1,24 +1,4 @@
-export type ToolMode = 'text' | 'file';
-
-export type ToolDefinition = {
-  slug: string;
-  name: string;
-  description: string;
-  mode: ToolMode;
-  acceptsMultipleFiles?: boolean;
-  options?: Array<{
-    key: string;
-    type: 'number' | 'string' | 'boolean';
-    label: string;
-    min?: number;
-    max?: number;
-    step?: number;
-    placeholder?: string;
-    defaultValue?: number | string | boolean;
-  }>;
-};
-
-export const tools: ToolDefinition[] = [
+export const tools = [
   {
     slug: 'image-compressor',
     name: 'Image Compressor',
@@ -293,10 +273,10 @@ export const tools: ToolDefinition[] = [
 export const validToolSlugs = new Set(tools.map((tool) => tool.slug));
 
 export const toolsBySlug = Object.fromEntries(
-  tools.map((tool) => [tool.slug, tool]),
-) as Record<string, ToolDefinition>;
+  tools.map((tool) => [tool.slug, tool])
+);
 
-export const savingsMap: Partial<Record<(typeof tools)[number]['slug'], number>> = {
+export const savingsMap = {
   'image-compressor': 1,
   'pdf-merge': 2,
   'video-to-gif': 3,
