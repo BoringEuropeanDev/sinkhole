@@ -364,23 +364,26 @@ export default function RootLayout({ children }) {
 
         <main>{children}</main>
 
-        <footer className="footer">
-          <div>
-            <h4>Open source, long term</h4>
-            <p>MIT licensed and community maintained, so the toolkit stays usable for everyone.</p>
-            <a
-              href="https://github.com/BoringEuropeanDev/sinkhole"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub Repository
-            </a>
-          </div>
-          <div>
-            <h4>Community savings</h4>
-            <SavingsTicker />
-          </div>
-        </footer>
+       <footer className="footer">
+  <div>
+    <h4>Open source, long term</h4>
+    <p>MIT licensed and community maintained, so the toolkit stays usable for everyone.</p>
+    <a href="https://github.com/BoringEuropeanDev/sinkhole" target="_blank" rel="noopener noreferrer">
+      GitHub Repository
+    </a>
+  </div>
+  <div>
+    <h4>Community savings</h4>
+    <SavingsTicker />
+  </div>
+  <div>
+    <h4>Legal</h4>
+    <nav style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Link href="/privacy">Privacy Policy</Link>
+      <Link href="/terms">Terms of Use</Link>
+    </nav>
+  </div>
+</footer>
       </body>
     </html>
   );
