@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { tools } from '../../lib/tools';
+import { getInitialOptions, getAcceptValue, runTool } from '../../lib/run-tool';
 
 export default function ToolPage() {
   const params = useParams();
@@ -10,59 +11,78 @@ export default function ToolPage() {
   const tool = useMemo(() => tools.find((t) => t.slug === slug), [slug]);
 
   const [input, setInput] = useState('');
-  const [result, setResult] = useState('Debug ready.');
+  const [files, setFiles] = useState([]);
+  const [optionValues, setOptionValues] = useState({});
+  const [result, setResult] = useState('Run a tool to see the output.');
   const [running, setRunning] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState('');
+  const [downloadName, setDownloadName] = useState('');
+  const [debug, setDebug] = useState(null);
+
+  useEffect(() => {
+    if (!tool) return;
+
+    setInput('');
+    setFiles([]);
+    setOptionValues(getInitialOptions(tool));
+    setResult('Run a tool to see the output.');
+    setDebug(null);
+
+    if (downloadUrl) {
+      URL.revokeObjectURL(downloadUrl);
+      setDownloadUrl('');
+      setDownloadName('');
+    }
+  }, [tool]);
+
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
 
   if (!tool) {
     return (
       <div className="page">
         <h1>Tool not found</h1>
-        <pre>{JSON.stringify({ slug }, null, 2)}</pre>
       </div>
     );
   }
 
-  async function run() {
+  async function handleRunTool() {
+    if (running) return;
+
     setRunning(true);
-    setResult('clicked');
+    setResult('Working...');
+    setDebug(null);
+
+    if (downloadUrl) {
+      URL.revokeObjectURL(downloadUrl);
+      setDownloadUrl('');
+      setDownloadName('');
+    }
 
     try {
-      const body = new FormData();
-      body.append('slug', tool.slug);
-      body.append('text', input || 'hello world');
-
-      setResult(`posting to /api/tools with slug=${tool.slug}`);
-
-      const res = await fetch('/api/tools', {
-        method: 'POST',
-        body,
+      const response = await runTool({
+        tool,
+        input,
+        files,
+        optionValues,
       });
 
-      const contentType = res.headers.get('content-type') || '';
-      const raw = await res.text();
+      setDebug(response.debug || null);
 
-      setResult(
-        JSON.stringify(
-          {
-            ok: res.ok,
-            status: res.status,
-            contentType,
-            raw,
-          },
-          null,
-          2
-        )
-      );
-    } catch (err) {
-      setResult(
-        JSON.stringify(
-          {
-            error: err instanceof Error ? err.message : 'Unknown error',
-          },
-          null,
-          2
-        )
-      );
+      if (!response.ok) {
+        setResult(response.message || 'Tool request failed.');
+        return;
+      }
+
+      setResult(response.display || 'Done.');
+
+      if (response.kind === 'file') {
+        setDownloadUrl(response.url);
+        setDownloadName(response.filename);
+      }
     } finally {
       setRunning(false);
     }
@@ -74,21 +94,85 @@ export default function ToolPage() {
       <p>{tool.description}</p>
 
       <div className="toolShell">
-        <label>
-          Input
-          <textarea
-            placeholder="Type anything here"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            rows={8}
-          />
-        </label>
+        {tool.mode === 'text' && (
+          <label>
+            Input
+            <textarea
+              placeholder="Paste text or a URL here"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              rows={10}
+            />
+          </label>
+        )}
 
-        <button type="button" className="btn" onClick={run} disabled={running}>
+        {tool.mode === 'file' && (
+          <>
+            {!!tool.options?.length && (
+              <div className="toolOptions">
+                <h3>Options</h3>
+                {tool.options.map((opt) => (
+                  <label key={opt.key}>
+                    {opt.label}
+                    {opt.type === 'boolean' ? (
+                      <input
+                        type="checkbox"
+                        checked={Boolean(optionValues[opt.key])}
+                        onChange={(e) =>
+                          setOptionValues((prev) => ({
+                            ...prev,
+                            [opt.key]: e.target.checked,
+                          }))
+                        }
+                      />
+                    ) : (
+                      <input
+                        type={opt.type === 'number' ? 'number' : 'text'}
+                        value={optionValues[opt.key] ?? ''}
+                        min={opt.min}
+                        max={opt.max}
+                        step={opt.step}
+                        placeholder={opt.placeholder}
+                        onChange={(e) =>
+                          setOptionValues((prev) => ({
+                            ...prev,
+                            [opt.key]: e.target.value,
+                          }))
+                        }
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <label>
+              {tool.acceptsMultipleFiles ? 'Files' : 'File'}
+              <input
+                type="file"
+                accept={getAcceptValue(tool.slug)}
+                multiple={Boolean(tool.acceptsMultipleFiles)}
+                onChange={(e) => setFiles(Array.from(e.target.files || []))}
+              />
+            </label>
+          </>
+        )}
+
+        <button type="button" className="btn" onClick={handleRunTool} disabled={running}>
           {running ? 'Running...' : 'Run Tool'}
         </button>
 
+        {downloadUrl && (
+          <p>
+            <a href={downloadUrl} download={downloadName}>
+              Download result
+            </a>
+          </p>
+        )}
+
         <pre>{result}</pre>
+
+        {debug && <pre>{JSON.stringify(debug, null, 2)}</pre>}
       </div>
     </div>
   );
