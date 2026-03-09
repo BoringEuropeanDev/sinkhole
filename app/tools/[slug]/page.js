@@ -11,36 +11,23 @@ import {
 
 export default function ToolPage() {
   const params = useParams();
-
-  // slug comes from the URL: /tools/some-tool-slug
   const slug = Array.isArray(params?.slug) ? params.slug[0] : params?.slug;
+  const tool = useMemo(() => tools.find((t) => t.slug === slug), [slug]);
 
-  // Find the tool details in your tools list
-  const tool = useMemo(
-    () => tools.find((t) => t.slug === slug),
-    [slug]
-  );
-
-  // State: what the user typed or uploaded, options, result, etc.
   const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
   const [optionValues, setOptionValues] = useState({});
-  const [result, setResult] = useState("Run a tool to see the output.");
+  const [result, setResult] = useState(null);
   const [running, setRunning] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState("");
   const [downloadName, setDownloadName] = useState("");
-  const [debug, setDebug] = useState(null);
 
-  // Whenever the tool changes (different slug), reset the UI
   useEffect(() => {
     if (!tool) return;
-
     setInput("");
     setFiles([]);
     setOptionValues(getInitialOptions(tool));
-    setResult("Run a tool to see the output.");
-    setDebug(null);
-
+    setResult(null);
     if (downloadUrl) {
       URL.revokeObjectURL(downloadUrl);
       setDownloadUrl("");
@@ -48,14 +35,12 @@ export default function ToolPage() {
     }
   }, [tool]);
 
-  // Clean up any previous download URL when leaving the page
   useEffect(() => {
     return () => {
       if (downloadUrl) URL.revokeObjectURL(downloadUrl);
     };
   }, [downloadUrl]);
 
-  // If the slug doesn’t match any tool, show an error
   if (!tool) {
     return (
       <div className="page">
@@ -65,15 +50,9 @@ export default function ToolPage() {
   }
 
   async function handleRunTool() {
-    // If already running, block double clicks
     if (running) return;
-
-    console.log("Run Tool clicked for:", tool.slug); // <-- test that click works
-
     setRunning(true);
-    setResult("Working...");
-    setDebug(null);
-
+    setResult({ type: "loading", text: "Working…" });
     if (downloadUrl) {
       URL.revokeObjectURL(downloadUrl);
       setDownloadUrl("");
@@ -81,21 +60,14 @@ export default function ToolPage() {
     }
 
     try {
-      const response = await runTool({
-        tool,
-        input,
-        files,
-        optionValues,
-      });
-
-      setDebug(response.debug || null);
+      const response = await runTool({ tool, input, files, optionValues });
 
       if (!response.ok) {
-        setResult(response.message || "Tool request failed.");
+        setResult({ type: "error", text: response.message || "Tool request failed." });
         return;
       }
 
-      setResult(response.display || "Done.");
+      setResult({ type: "success", text: response.display || "Done." });
 
       if (response.kind === "file") {
         setDownloadUrl(response.url);
@@ -108,8 +80,10 @@ export default function ToolPage() {
 
   return (
     <div className="page">
-      <h1>{tool.name}</h1>
-      <p>{tool.description}</p>
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ margin: "0 0 6px" }}>{tool.name}</h1>
+        <p style={{ color: "var(--muted)", margin: 0 }}>{tool.description}</p>
+      </div>
 
       <div className="toolShell">
         {tool.mode === "text" && (
@@ -128,7 +102,7 @@ export default function ToolPage() {
           <>
             {!!tool.options?.length && (
               <div className="toolOptions">
-                <h3>Options</h3>
+                <p style={{ color: "var(--muted)", margin: "0 0 8px", fontWeight: 600 }}>Options</p>
                 {tool.options.map((opt) => (
                   <label key={opt.key}>
                     {opt.label}
@@ -137,10 +111,7 @@ export default function ToolPage() {
                         type="checkbox"
                         checked={Boolean(optionValues[opt.key])}
                         onChange={(e) =>
-                          setOptionValues((prev) => ({
-                            ...prev,
-                            [opt.key]: e.target.checked,
-                          }))
+                          setOptionValues((prev) => ({ ...prev, [opt.key]: e.target.checked }))
                         }
                       />
                     ) : (
@@ -152,10 +123,7 @@ export default function ToolPage() {
                         step={opt.step}
                         placeholder={opt.placeholder}
                         onChange={(e) =>
-                          setOptionValues((prev) => ({
-                            ...prev,
-                            [opt.key]: e.target.value,
-                          }))
+                          setOptionValues((prev) => ({ ...prev, [opt.key]: e.target.value }))
                         }
                       />
                     )}
@@ -181,21 +149,58 @@ export default function ToolPage() {
           className="btn"
           onClick={handleRunTool}
           disabled={running}
+          style={{ width: "100%", padding: "12px", fontSize: "1rem" }}
         >
-          {running ? "Running..." : "Run Tool"}
+          {running ? "Running…" : "Run Tool"}
         </button>
 
-        {downloadUrl && (
-          <p>
-            <a href={downloadUrl} download={downloadName}>
-              Download result
-            </a>
-          </p>
+        {/* Result box — only shows after clicking Run */}
+        {result && (
+          <div style={{
+            borderRadius: 8,
+            border: `1px solid ${result.type === "error" ? "#7f1d1d" : result.type === "loading" ? "var(--border)" : "#1a4731"}`,
+            background: result.type === "error" ? "#1a0a0a" : result.type === "loading" ? "var(--surface-2)" : "#0a1f14",
+            padding: "12px 14px",
+          }}>
+            {result.type === "loading" && (
+              <span style={{ color: "var(--muted)", fontStyle: "italic" }}>⏳ {result.text}</span>
+            )}
+            {result.type === "error" && (
+              <span style={{ color: "#f87171" }}>⚠️ {result.text}</span>
+            )}
+            {result.type === "success" && (
+              <pre style={{
+                margin: 0,
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                color: "var(--text)",
+                fontSize: "0.9rem",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}>
+                {result.text}
+              </pre>
+            )}
+          </div>
         )}
 
-        <pre>{result}</pre>
-
-        {debug && <pre>{JSON.stringify(debug, null, 2)}</pre>}
+        {/* Download button */}
+        {downloadUrl && (
+          <a
+            href={downloadUrl}
+            download={downloadName}
+            className="btn"
+            style={{
+              width: "100%",
+              textAlign: "center",
+              padding: "12px",
+              fontSize: "1rem",
+            }}
+          >
+            ⬇️ Download {downloadName}
+          </a>
+        )}
       </div>
     </div>
   );
