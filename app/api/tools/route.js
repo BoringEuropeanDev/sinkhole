@@ -1,5 +1,5 @@
-import sharp from 'sharp';
-import { PDFDocument } from 'pdf-lib';
+export const runtime = 'nodejs';
+
 import { savingsMap, validToolSlugs } from '../../lib/tools';
 
 const webhookEvents = [];
@@ -85,13 +85,24 @@ async function readFileBuffer(file) {
   return Buffer.from(await file.arrayBuffer());
 }
 
-async function loadPdf(file) {
-  const buf = await readFileBuffer(file);
-  return PDFDocument.load(buf, { ignoreEncryption: true });
-}
-
 function contentDisposition(filename) {
   return `attachment; filename="${filename.replace(/"/g, '')}"`;
+}
+
+async function getSharp() {
+  const mod = await import('sharp');
+  return mod.default || mod;
+}
+
+async function getPDFDocument() {
+  const mod = await import('pdf-lib');
+  return mod.PDFDocument;
+}
+
+async function loadPdf(file) {
+  const PDFDocument = await getPDFDocument();
+  const buf = await readFileBuffer(file);
+  return PDFDocument.load(buf, { ignoreEncryption: true });
 }
 
 export async function GET(req) {
@@ -137,9 +148,10 @@ export async function POST(req) {
     }
 
     if (savingsMap[slug]) {
-      // no-op for now
+      // no-op
     }
 
+    // Text tools first, no heavy imports needed.
     if (slug === 'word-counter') {
       return json({
         words: (text.trim().match(/\S+/g) || []).length,
@@ -267,323 +279,347 @@ export async function POST(req) {
       return null;
     }
 
-    if (slug === 'image-format-detector' || slug === 'metadata-viewer') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
+    // Image tools: import sharp only when needed.
+    if (
+      slug === 'image-format-detector' ||
+      slug === 'metadata-viewer' ||
+      slug === 'image-compressor' ||
+      slug === 'image-converter' ||
+      slug === 'heic-to-jpg' ||
+      slug === 'webp-to-png' ||
+      slug === 'image-resize' ||
+      slug === 'image-crop' ||
+      slug === 'image-rotator' ||
+      slug === 'background-remover' ||
+      slug === 'image-blur-tool' ||
+      slug === 'universal-file-converter' ||
+      slug === 'pdf-to-images'
+    ) {
+      const sharp = await getSharp();
 
-      const metadata = await sharp(await readFileBuffer(file)).metadata();
-      return json(metadata);
-    }
+      if (slug === 'image-format-detector' || slug === 'metadata-viewer') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
 
-    if (slug === 'image-compressor') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
-
-      const quality = clamp(asNumber(options.quality, 60), 30, 90);
-      const output = await sharp(await readFileBuffer(file)).jpeg({ quality }).toBuffer();
-
-      return new Response(output, {
-        headers: {
-          'Content-Type': 'image/jpeg',
-          'Content-Disposition': contentDisposition('compressed.jpg'),
-        },
-      });
-    }
-
-    if (slug === 'image-converter' || slug === 'heic-to-jpg') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
-
-      const output = await sharp(await readFileBuffer(file)).jpeg().toBuffer();
-      return new Response(output, {
-        headers: {
-          'Content-Type': 'image/jpeg',
-          'Content-Disposition': contentDisposition('converted.jpg'),
-        },
-      });
-    }
-
-    if (slug === 'webp-to-png') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
-
-      const output = await sharp(await readFileBuffer(file)).png().toBuffer();
-      return new Response(output, {
-        headers: {
-          'Content-Type': 'image/png',
-          'Content-Disposition': contentDisposition('converted.png'),
-        },
-      });
-    }
-
-    if (slug === 'image-resize') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
-
-      const input = await readFileBuffer(file);
-      const meta = await sharp(input).metadata();
-
-      const width = clamp(asNumber(options.width, 1280), 1, 4000);
-      const rawHeight =
-        options.height == null || options.height === ''
-          ? undefined
-          : clamp(asNumber(options.height, 0), 1, 4000);
-
-      const pipeline = sharp(input).resize({
-        width,
-        height: rawHeight,
-        fit: 'inside',
-        withoutEnlargement: true,
-      });
-
-      const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
-
-      let output;
-      let contentType;
-
-      if (format === 'jpeg') {
-        output = await pipeline.jpeg().toBuffer();
-        contentType = 'image/jpeg';
-      } else if (format === 'webp') {
-        output = await pipeline.webp().toBuffer();
-        contentType = 'image/webp';
-      } else {
-        output = await pipeline.png().toBuffer();
-        contentType = 'image/png';
+        const metadata = await sharp(await readFileBuffer(file)).metadata();
+        return json(metadata);
       }
 
-      return new Response(output, {
-        headers: {
-          'Content-Type': contentType,
-          'Content-Disposition': contentDisposition(`resized.${format === 'jpeg' ? 'jpg' : format}`),
-        },
-      });
-    }
+      if (slug === 'image-compressor') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
 
-    if (slug === 'image-crop') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
+        const quality = clamp(asNumber(options.quality, 60), 30, 90);
+        const output = await sharp(await readFileBuffer(file)).jpeg({ quality }).toBuffer();
 
-      const input = await readFileBuffer(file);
-      const meta = await sharp(input).metadata();
-
-      if (!meta.width || !meta.height) {
-        return error('Unable to read image dimensions.');
+        return new Response(output, {
+          headers: {
+            'Content-Type': 'image/jpeg',
+            'Content-Disposition': contentDisposition('compressed.jpg'),
+          },
+        });
       }
 
-      const left = clamp(asNumber(options.left, 0), 0, meta.width - 1);
-      const top = clamp(asNumber(options.top, 0), 0, meta.height - 1);
-      const width = clamp(asNumber(options.width, Math.min(400, meta.width - left)), 1, meta.width - left);
-      const height = clamp(asNumber(options.height, Math.min(400, meta.height - top)), 1, meta.height - top);
+      if (slug === 'image-converter' || slug === 'heic-to-jpg') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
 
-      const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
-
-      let output;
-      let contentType;
-
-      const pipeline = sharp(input).extract({ left, top, width, height });
-
-      if (format === 'jpeg') {
-        output = await pipeline.jpeg().toBuffer();
-        contentType = 'image/jpeg';
-      } else if (format === 'webp') {
-        output = await pipeline.webp().toBuffer();
-        contentType = 'image/webp';
-      } else {
-        output = await pipeline.png().toBuffer();
-        contentType = 'image/png';
+        const output = await sharp(await readFileBuffer(file)).jpeg().toBuffer();
+        return new Response(output, {
+          headers: {
+            'Content-Type': 'image/jpeg',
+            'Content-Disposition': contentDisposition('converted.jpg'),
+          },
+        });
       }
 
-      return new Response(output, {
-        headers: {
-          'Content-Type': contentType,
-          'Content-Disposition': contentDisposition(`cropped.${format === 'jpeg' ? 'jpg' : format}`),
-        },
-      });
-    }
+      if (slug === 'webp-to-png') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
 
-    if (slug === 'image-rotator') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
-
-      const input = await readFileBuffer(file);
-      const meta = await sharp(input).metadata();
-      const degrees = asNumber(options.degrees, 90);
-      const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
-
-      let output;
-      let contentType;
-
-      const pipeline = sharp(input).rotate(degrees);
-
-      if (format === 'jpeg') {
-        output = await pipeline.jpeg().toBuffer();
-        contentType = 'image/jpeg';
-      } else if (format === 'webp') {
-        output = await pipeline.webp().toBuffer();
-        contentType = 'image/webp';
-      } else {
-        output = await pipeline.png().toBuffer();
-        contentType = 'image/png';
+        const output = await sharp(await readFileBuffer(file)).png().toBuffer();
+        return new Response(output, {
+          headers: {
+            'Content-Type': 'image/png',
+            'Content-Disposition': contentDisposition('converted.png'),
+          },
+        });
       }
 
-      return new Response(output, {
-        headers: {
-          'Content-Type': contentType,
-          'Content-Disposition': contentDisposition(`rotated.${format === 'jpeg' ? 'jpg' : format}`),
-        },
-      });
-    }
+      if (slug === 'image-resize') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
 
-    if (slug === 'background-remover') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
+        const input = await readFileBuffer(file);
+        const meta = await sharp(input).metadata();
 
-      const output = await sharp(await readFileBuffer(file))
-        .grayscale()
-        .threshold(210)
-        .png()
-        .toBuffer();
+        const width = clamp(asNumber(options.width, 1280), 1, 4000);
+        const rawHeight =
+          options.height == null || options.height === ''
+            ? undefined
+            : clamp(asNumber(options.height, 0), 1, 4000);
 
-      return new Response(output, {
-        headers: {
-          'Content-Type': 'image/png',
-          'Content-Disposition': contentDisposition('background-removed.png'),
-        },
-      });
-    }
+        const pipeline = sharp(input).resize({
+          width,
+          height: rawHeight,
+          fit: 'inside',
+          withoutEnlargement: true,
+        });
 
-    if (slug === 'image-blur-tool') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
+        const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
 
-      const input = await readFileBuffer(file);
-      const meta = await sharp(input).metadata();
-      const blur = clamp(asNumber(options.blur, 4), 0.3, 10);
-      const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
+        let output;
+        let contentType;
 
-      let output;
-      let contentType;
+        if (format === 'jpeg') {
+          output = await pipeline.jpeg().toBuffer();
+          contentType = 'image/jpeg';
+        } else if (format === 'webp') {
+          output = await pipeline.webp().toBuffer();
+          contentType = 'image/webp';
+        } else {
+          output = await pipeline.png().toBuffer();
+          contentType = 'image/png';
+        }
 
-      const pipeline = sharp(input).blur(blur);
-
-      if (format === 'jpeg') {
-        output = await pipeline.jpeg().toBuffer();
-        contentType = 'image/jpeg';
-      } else if (format === 'webp') {
-        output = await pipeline.webp().toBuffer();
-        contentType = 'image/webp';
-      } else {
-        output = await pipeline.png().toBuffer();
-        contentType = 'image/png';
+        return new Response(output, {
+          headers: {
+            'Content-Type': contentType,
+            'Content-Disposition': contentDisposition(`resized.${format === 'jpeg' ? 'jpg' : format}`),
+          },
+        });
       }
 
-      return new Response(output, {
-        headers: {
-          'Content-Type': contentType,
-          'Content-Disposition': contentDisposition(`blurred.${format === 'jpeg' ? 'jpg' : format}`),
-        },
-      });
-    }
+      if (slug === 'image-crop') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
 
-    if (slug === 'universal-file-converter') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
+        const input = await readFileBuffer(file);
+        const meta = await sharp(input).metadata();
 
-      const output = await sharp(await readFileBuffer(file)).png().toBuffer();
-      return new Response(output, {
-        headers: {
-          'Content-Type': 'image/png',
-          'Content-Disposition': contentDisposition('converted.png'),
-        },
-      });
-    }
+        if (!meta.width || !meta.height) {
+          return error('Unable to read image dimensions.');
+        }
 
-    if (slug === 'pdf-merge') {
-      if (!files.length) return error('Provide at least one PDF file.');
+        const left = clamp(asNumber(options.left, 0), 0, meta.width - 1);
+        const top = clamp(asNumber(options.top, 0), 0, meta.height - 1);
+        const width = clamp(asNumber(options.width, Math.min(400, meta.width - left)), 1, meta.width - left);
+        const height = clamp(asNumber(options.height, Math.min(400, meta.height - top)), 1, meta.height - top);
 
-      const out = await PDFDocument.create();
+        const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
 
-      for (const f of files) {
-        const pdf = await loadPdf(f);
-        const pages = await out.copyPages(pdf, pdf.getPageIndices());
-        pages.forEach((p) => out.addPage(p));
+        let output;
+        let contentType;
+
+        const pipeline = sharp(input).extract({ left, top, width, height });
+
+        if (format === 'jpeg') {
+          output = await pipeline.jpeg().toBuffer();
+          contentType = 'image/jpeg';
+        } else if (format === 'webp') {
+          output = await pipeline.webp().toBuffer();
+          contentType = 'image/webp';
+        } else {
+          output = await pipeline.png().toBuffer();
+          contentType = 'image/png';
+        }
+
+        return new Response(output, {
+          headers: {
+            'Content-Type': contentType,
+            'Content-Disposition': contentDisposition(`cropped.${format === 'jpeg' ? 'jpg' : format}`),
+          },
+        });
       }
 
-      return new Response(await out.save(), {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': contentDisposition('merged.pdf'),
-        },
-      });
-    }
+      if (slug === 'image-rotator') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
 
-    if (slug === 'pdf-split') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
+        const input = await readFileBuffer(file);
+        const meta = await sharp(input).metadata();
+        const degrees = asNumber(options.degrees, 90);
+        const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
 
-      const pdf = await loadPdf(file);
-      const pageCount = pdf.getPageCount();
-      const page = clamp(asNumber(options.page, 1), 1, pageCount) - 1;
+        let output;
+        let contentType;
 
-      const out = await PDFDocument.create();
-      const [copied] = await out.copyPages(pdf, [page]);
-      out.addPage(copied);
+        const pipeline = sharp(input).rotate(degrees);
 
-      return new Response(await out.save(), {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': contentDisposition(`page-${page + 1}.pdf`),
-        },
-      });
-    }
+        if (format === 'jpeg') {
+          output = await pipeline.jpeg().toBuffer();
+          contentType = 'image/jpeg';
+        } else if (format === 'webp') {
+          output = await pipeline.webp().toBuffer();
+          contentType = 'image/webp';
+        } else {
+          output = await pipeline.png().toBuffer();
+          contentType = 'image/png';
+        }
 
-    if (slug === 'pdf-compress') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
+        return new Response(output, {
+          headers: {
+            'Content-Type': contentType,
+            'Content-Disposition': contentDisposition(`rotated.${format === 'jpeg' ? 'jpg' : format}`),
+          },
+        });
+      }
 
-      const pdf = await loadPdf(file);
-      return new Response(await pdf.save({ useObjectStreams: true, addDefaultPage: false }), {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': contentDisposition('compressed.pdf'),
-        },
-      });
-    }
+      if (slug === 'background-remover') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
 
-    if (slug === 'pdf-unlock') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
-
-      const pdf = await loadPdf(file);
-      return new Response(await pdf.save({ addDefaultPage: false }), {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': contentDisposition('unlocked.pdf'),
-        },
-      });
-    }
-
-    if (slug === 'pdf-to-images') {
-      const fileErr = requireSingleFile();
-      if (fileErr) return fileErr;
-
-      try {
-        const density = clamp(asNumber(options.density, 144), 72, 300);
-        const page = Math.max(0, asNumber(options.page, 1) - 1);
-
-        const output = await sharp(await readFileBuffer(file), { density, page })
+        const output = await sharp(await readFileBuffer(file))
+          .grayscale()
+          .threshold(210)
           .png()
           .toBuffer();
 
         return new Response(output, {
           headers: {
             'Content-Type': 'image/png',
-            'Content-Disposition': contentDisposition(`page-${page + 1}.png`),
+            'Content-Disposition': contentDisposition('background-removed.png'),
           },
         });
-      } catch {
-        return error('PDF-to-image conversion is not available in this runtime. Install Sharp with PDF rendering support.');
+      }
+
+      if (slug === 'image-blur-tool') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
+
+        const input = await readFileBuffer(file);
+        const meta = await sharp(input).metadata();
+        const blur = clamp(asNumber(options.blur, 4), 0.3, 10);
+        const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
+
+        let output;
+        let contentType;
+
+        const pipeline = sharp(input).blur(blur);
+
+        if (format === 'jpeg') {
+          output = await pipeline.jpeg().toBuffer();
+          contentType = 'image/jpeg';
+        } else if (format === 'webp') {
+          output = await pipeline.webp().toBuffer();
+          contentType = 'image/webp';
+        } else {
+          output = await pipeline.png().toBuffer();
+          contentType = 'image/png';
+        }
+
+        return new Response(output, {
+          headers: {
+            'Content-Type': contentType,
+            'Content-Disposition': contentDisposition(`blurred.${format === 'jpeg' ? 'jpg' : format}`),
+          },
+        });
+      }
+
+      if (slug === 'universal-file-converter') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
+
+        const output = await sharp(await readFileBuffer(file)).png().toBuffer();
+        return new Response(output, {
+          headers: {
+            'Content-Type': 'image/png',
+            'Content-Disposition': contentDisposition('converted.png'),
+          },
+        });
+      }
+
+      if (slug === 'pdf-to-images') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
+
+        try {
+          const density = clamp(asNumber(options.density, 144), 72, 300);
+          const page = Math.max(0, asNumber(options.page, 1) - 1);
+
+          const output = await sharp(await readFileBuffer(file), { density, page })
+            .png()
+            .toBuffer();
+
+          return new Response(output, {
+            headers: {
+              'Content-Type': 'image/png',
+              'Content-Disposition': contentDisposition(`page-${page + 1}.png`),
+            },
+          });
+        } catch {
+          return error('PDF-to-image conversion is not available in this runtime. Install Sharp with PDF rendering support.');
+        }
+      }
+    }
+
+    // PDF tools: import pdf-lib only when needed.
+    if (slug === 'pdf-merge' || slug === 'pdf-split' || slug === 'pdf-compress' || slug === 'pdf-unlock') {
+      const PDFDocument = await getPDFDocument();
+
+      if (slug === 'pdf-merge') {
+        if (!files.length) return error('Provide at least one PDF file.');
+
+        const out = await PDFDocument.create();
+
+        for (const f of files) {
+          const pdf = await loadPdf(f);
+          const pages = await out.copyPages(pdf, pdf.getPageIndices());
+          pages.forEach((p) => out.addPage(p));
+        }
+
+        return new Response(await out.save(), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': contentDisposition('merged.pdf'),
+          },
+        });
+      }
+
+      if (slug === 'pdf-split') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
+
+        const pdf = await loadPdf(file);
+        const pageCount = pdf.getPageCount();
+        const page = clamp(asNumber(options.page, 1), 1, pageCount) - 1;
+
+        const out = await PDFDocument.create();
+        const [copied] = await out.copyPages(pdf, [page]);
+        out.addPage(copied);
+
+        return new Response(await out.save(), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': contentDisposition(`page-${page + 1}.pdf`),
+          },
+        });
+      }
+
+      if (slug === 'pdf-compress') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
+
+        const pdf = await loadPdf(file);
+        return new Response(await pdf.save({ useObjectStreams: true, addDefaultPage: false }), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': contentDisposition('compressed.pdf'),
+          },
+        });
+      }
+
+      if (slug === 'pdf-unlock') {
+        const fileErr = requireSingleFile();
+        if (fileErr) return fileErr;
+
+        const pdf = await loadPdf(file);
+        return new Response(await pdf.save({ addDefaultPage: false }), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': contentDisposition('unlocked.pdf'),
+          },
+        });
       }
     }
 
