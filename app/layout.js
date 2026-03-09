@@ -279,15 +279,9 @@ export const metadata = {
     canonical: 'https://www.sinkhole.app',
   },
   icons: {
-    icon: [
-      { url: '/favicon.ico' },
-      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
-      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
-    ],
-    apple: [
-      { url: '/apple-touch-icon.png' },
-    ],
-    shortcut: '/favicon.ico',
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    shortcut: '/favicon.svg',
+    apple: '/favicon.svg',
   },
   openGraph: {
     type: 'website',
@@ -326,6 +320,9 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+      </head>
       <body>
         <script
           type="application/ld+json"
@@ -355,7 +352,14 @@ export default function RootLayout({ children }) {
             <Link href="/tools">Tool Vault</Link>
             <Link href="/open-source">Open Source</Link>
           </nav>
-          <a className="tip" href="https://buymeacoffee.com/bedmakr" target="_blank" rel="noopener noreferrer">☕ Fuel Build</a>
+          <a
+            className="tip"
+            href="https://buymeacoffee.com/bedmakr"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            ☕ Fuel Build
+          </a>
         </header>
 
         <main>{children}</main>
@@ -364,7 +368,13 @@ export default function RootLayout({ children }) {
           <div>
             <h4>Open source, long term</h4>
             <p>MIT licensed and community maintained, so the toolkit stays usable for everyone.</p>
-            <a href="https://github.com/BoringEuropeanDev/sinkhole" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+            <a
+              href="https://github.com/BoringEuropeanDev/sinkhole"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub Repository
+            </a>
           </div>
           <div>
             <h4>Community savings</h4>
