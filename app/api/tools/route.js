@@ -1,284 +1,218 @@
-export const tools = [
-  {
-    slug: 'image-compressor',
-    name: 'Image Compressor',
-    description: 'Compress uploaded images to JPG with adjustable quality.',
-    mode: 'file',
-    options: [
-      {
-        key: 'quality',
-        type: 'number',
-        label: 'JPEG quality',
-        min: 30,
-        max: 90,
-        step: 1,
-        defaultValue: 60,
-      },
-    ],
-  },
-  {
-    slug: 'image-converter',
-    name: 'Image Converter',
-    description: 'Convert uploaded image files to JPG.',
-    mode: 'file',
-  },
-  {
-    slug: 'image-resize',
-    name: 'Image Resize',
-    description: 'Resize an uploaded image while preserving aspect ratio.',
-    mode: 'file',
-    options: [
-      {
-        key: 'width',
-        type: 'number',
-        label: 'Max width',
-        min: 1,
-        max: 4000,
-        step: 1,
-        defaultValue: 1280,
-      },
-      {
-        key: 'height',
-        type: 'number',
-        label: 'Max height',
-        min: 1,
-        max: 4000,
-        step: 1,
-        placeholder: 'Optional',
-      },
-    ],
-  },
-  {
-    slug: 'image-crop',
-    name: 'Image Crop',
-    description: 'Crop an uploaded image using left, top, width, and height values.',
-    mode: 'file',
-    options: [
-      { key: 'left', type: 'number', label: 'Left', min: 0, step: 1, defaultValue: 0 },
-      { key: 'top', type: 'number', label: 'Top', min: 0, step: 1, defaultValue: 0 },
-      { key: 'width', type: 'number', label: 'Width', min: 1, step: 1, defaultValue: 400 },
-      { key: 'height', type: 'number', label: 'Height', min: 1, step: 1, defaultValue: 400 },
-    ],
-  },
-  {
-    slug: 'image-rotator',
-    name: 'Image Rotator',
-    description: 'Rotate an uploaded image by a custom number of degrees.',
-    mode: 'file',
-    options: [
-      {
-        key: 'degrees',
-        type: 'number',
-        label: 'Degrees',
-        min: -360,
-        max: 360,
-        step: 1,
-        defaultValue: 90,
-      },
-    ],
-  },
-  {
-    slug: 'image-format-detector',
-    name: 'Image Format Detector',
-    description: 'Detect uploaded image format and metadata.',
-    mode: 'file',
-  },
-  {
-    slug: 'background-remover',
-    name: 'Background Remover',
-    description: 'Apply a simple threshold-based background removal fallback and return PNG.',
-    mode: 'file',
-  },
-  {
-    slug: 'image-blur-tool',
-    name: 'Image Blur Tool',
-    description: 'Apply adjustable blur to an uploaded image.',
-    mode: 'file',
-    options: [
-      {
-        key: 'blur',
-        type: 'number',
-        label: 'Blur strength',
-        min: 0.3,
-        max: 10,
-        step: 0.1,
-        defaultValue: 4,
-      },
-    ],
-  },
-  {
-    slug: 'universal-file-converter',
-    name: 'Universal File Converter',
-    description: 'Convert supported uploaded image files to PNG.',
-    mode: 'file',
-  },
-  {
-    slug: 'heic-to-jpg',
-    name: 'HEIC to JPG',
-    description: 'Convert uploaded HEIC image files to JPG.',
-    mode: 'file',
-  },
-  {
-    slug: 'webp-to-png',
-    name: 'WEBP to PNG',
-    description: 'Convert uploaded WEBP image files to PNG.',
-    mode: 'file',
-  },
-  {
-    slug: 'video-to-gif',
-    name: 'Video to GIF',
-    description: 'Reserved for GIF generation in ffmpeg-enabled runtimes.',
-    mode: 'file',
-  },
-  {
-    slug: 'video-compressor',
-    name: 'Video Compressor',
-    description: 'Reserved for video compression in ffmpeg-enabled runtimes.',
-    mode: 'file',
-  },
-  {
-    slug: 'video-thumbnail-generator',
-    name: 'Video Thumbnail Generator',
-    description: 'Reserved for thumbnail extraction in ffmpeg-enabled runtimes.',
-    mode: 'file',
-  },
-  {
-    slug: 'pdf-merge',
-    name: 'PDF Merge',
-    description: 'Merge one or more uploaded PDF files into a single PDF.',
-    mode: 'file',
-    acceptsMultipleFiles: true,
-  },
-  {
-    slug: 'pdf-split',
-    name: 'PDF Split',
-    description: 'Extract a single page from an uploaded PDF.',
-    mode: 'file',
-    options: [
-      {
-        key: 'page',
-        type: 'number',
-        label: 'Page number',
-        min: 1,
-        step: 1,
-        defaultValue: 1,
-      },
-    ],
-  },
-  {
-    slug: 'pdf-compress',
-    name: 'PDF Compress',
-    description: 'Rewrite an uploaded PDF with object streams enabled.',
-    mode: 'file',
-  },
-  {
-    slug: 'pdf-unlock',
-    name: 'PDF Unlock',
-    description: 'Load and rewrite uploaded PDFs with encryption ignored where possible.',
-    mode: 'file',
-  },
-  {
-    slug: 'pdf-to-images',
-    name: 'PDF to Images',
-    description: 'Render a selected PDF page to PNG when PDF raster support is available.',
-    mode: 'file',
-    options: [
-      {
-        key: 'page',
-        type: 'number',
-        label: 'Page number',
-        min: 1,
-        step: 1,
-        defaultValue: 1,
-      },
-      {
-        key: 'density',
-        type: 'number',
-        label: 'Density',
-        min: 72,
-        max: 300,
-        step: 1,
-        defaultValue: 144,
-      },
-    ],
-  },
-  {
-    slug: 'website-screenshot-generator',
-    name: 'Website Screenshot Generator',
-    description: 'Validate a public URL and return fetched page metadata in this runtime.',
-    mode: 'text',
-  },
-  {
-    slug: 'metadata-viewer',
-    name: 'Metadata Viewer',
-    description: 'Inspect uploaded file metadata supported by Sharp.',
-    mode: 'file',
-  },
-  {
-    slug: 'article-cleaner',
-    name: 'Article Cleaner',
-    description: 'Strip scripts, styles, and HTML tags from pasted article markup.',
-    mode: 'text',
-  },
-  {
-    slug: 'word-counter',
-    name: 'Word Counter',
-    description: 'Count words, characters, and lines.',
-    mode: 'text',
-  },
-  {
-    slug: 'text-case-converter',
-    name: 'Text Case Converter',
-    description: 'Convert text to upper, lower, and title case.',
-    mode: 'text',
-  },
-  {
-    slug: 'duplicate-line-remover',
-    name: 'Duplicate Line Remover',
-    description: 'Remove repeated lines while preserving first occurrence order.',
-    mode: 'text',
-  },
-  {
-    slug: 'markdown-previewer',
-    name: 'Markdown Previewer',
-    description: 'Render basic markdown into escaped HTML.',
-    mode: 'text',
-  },
-  {
-    slug: 'json-formatter',
-    name: 'JSON Formatter',
-    description: 'Validate and prettify JSON input.',
-    mode: 'text',
-  },
-  {
-    slug: 'base64-encoder-decoder',
-    name: 'Base64 Encoder / Decoder',
-    description: 'Encode plain text to Base64 or decode valid Base64 to text.',
-    mode: 'text',
-  },
-  {
-    slug: 'url-encoder-decoder',
-    name: 'URL Encoder / Decoder',
-    description: 'Encode or decode URL components.',
-    mode: 'text',
-  },
-  {
-    slug: 'webhook-request-bin',
-    name: 'Webhook Request Bin',
-    description: 'Store posted webhook payload text in a temporary in-memory list.',
-    mode: 'text',
-  },
-];
+export const runtime = 'nodejs';
 
-export const validToolSlugs = new Set(tools.map((tool) => tool.slug));
+import { validToolSlugs } from '../../lib/tools';
 
-export const toolsBySlug = Object.fromEntries(
-  tools.map((tool) => [tool.slug, tool])
-);
+const webhookEvents = [];
+const MAX_TEXT_LENGTH = 50000;
 
-export const savingsMap = {
-  'image-compressor': 1,
-  'pdf-merge': 2,
-  'video-to-gif': 3,
-  'background-remover': 2,
-};
+function json(result, status = 200) {
+  return Response.json({ result }, { status });
+}
+
+function error(message, status = 400) {
+  return Response.json({ error: message }, { status });
+}
+
+function isProbablyBase64(text) {
+  const normalized = text.replace(/\s+/g, '');
+  if (!normalized || normalized.length % 4 !== 0) return false;
+  if (!/^[A-Za-z0-9+/]+=*$/.test(normalized)) return false;
+
+  try {
+    Buffer.from(normalized, 'base64');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isBlockedHost(hostname) {
+  const host = (hostname || '').toLowerCase();
+
+  if (!host) return true;
+  if (host === 'localhost' || host.endsWith('.local')) return true;
+  if (host === '0.0.0.0' || host === '127.0.0.1' || host === '::1') return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+
+  return false;
+}
+
+function sanitizeMarkdown(text) {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  return escaped
+    .replace(/^### (.+)$/gim, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gim, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gim, '<h1>$1</h1>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br/>');
+}
+
+export async function GET(req) {
+  const { searchParams } = new URL(req.url);
+
+  if (searchParams.get('slug') === 'webhook-request-bin') {
+    return Response.json({ events: webhookEvents.slice(-50) });
+  }
+
+  return Response.json({ ok: true, message: 'api-tools-live' });
+}
+
+export async function POST(req) {
+  try {
+    const form = await req.formData();
+
+    const slug = form.get('slug')?.toString() || '';
+    const text = form.get('text')?.toString() || '';
+
+    if (!slug || !validToolSlugs.has(slug)) {
+      return error(`Unknown tool: ${slug || '(empty)'}`, 404);
+    }
+
+    if (text.length > MAX_TEXT_LENGTH) {
+      return error(`Text input is too large. Max ${MAX_TEXT_LENGTH} characters.`);
+    }
+
+    if (slug === 'webhook-request-bin') {
+      webhookEvents.push({ at: Date.now(), payload: text || 'empty' });
+      return json('Webhook payload captured.');
+    }
+
+    if (slug === 'word-counter') {
+      return json({
+        words: (text.trim().match(/\S+/g) || []).length,
+        chars: text.length,
+        lines: text ? text.split(/\r?\n/).length : 0,
+      });
+    }
+
+    if (slug === 'text-case-converter') {
+      return json({
+        upper: text.toUpperCase(),
+        lower: text.toLowerCase(),
+        title: text.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase()),
+      });
+    }
+
+    if (slug === 'duplicate-line-remover') {
+      const seen = new Set();
+      const lines = text.split(/\r?\n/).filter((line) => {
+        if (seen.has(line)) return false;
+        seen.add(line);
+        return true;
+      });
+      return json(lines.join('\n'));
+    }
+
+    if (slug === 'json-formatter') {
+      if (!text.trim()) return json('{}');
+
+      try {
+        return json(JSON.stringify(JSON.parse(text), null, 2));
+      } catch {
+        return error('Invalid JSON input.');
+      }
+    }
+
+    if (slug === 'base64-encoder-decoder') {
+      if (!text.trim()) return json('');
+
+      if (isProbablyBase64(text)) {
+        try {
+          return json(Buffer.from(text.replace(/\s+/g, ''), 'base64').toString('utf8'));
+        } catch {
+          return error('Invalid base64 input.');
+        }
+      }
+
+      return json(Buffer.from(text, 'utf8').toString('base64'));
+    }
+
+    if (slug === 'url-encoder-decoder') {
+      if (!text) return json('');
+
+      try {
+        return json(decodeURIComponent(text));
+      } catch {
+        return json(encodeURIComponent(text));
+      }
+    }
+
+    if (slug === 'markdown-previewer') {
+      return json(sanitizeMarkdown(text));
+    }
+
+    if (slug === 'article-cleaner') {
+      const cleaned = text
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      return json(cleaned);
+    }
+
+    if (slug === 'website-screenshot-generator') {
+      const raw = text.trim();
+      if (!raw) return error('Provide a URL in text input.');
+
+      let target;
+      try {
+        target = new URL(raw);
+      } catch {
+        return error('Invalid URL. Use a full http:// or https:// URL.');
+      }
+
+      if (!['http:', 'https:'].includes(target.protocol)) {
+        return error('Only http/https URLs are supported.');
+      }
+
+      if (isBlockedHost(target.hostname)) {
+        return error('Local/private hosts are blocked for safety.');
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+
+      try {
+        const res = await fetch(target.toString(), {
+          method: 'GET',
+          redirect: 'follow',
+          signal: controller.signal,
+          headers: { 'user-agent': 'tool-runtime/1.0' },
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        const html = contentType.includes('text/html') ? await res.text() : '';
+        const titleMatch = html.match(/<title[^>]*>([\s\S]{0,200}?)<\/title>/i);
+
+        return json({
+          url: target.toString(),
+          status: res.status,
+          ok: res.ok,
+          contentType,
+          title: titleMatch?.[1]?.replace(/\s+/g, ' ').trim() || null,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    return error(`Tool "${slug}" is not enabled yet in this safe API route.`, 501);
+  } catch (err) {
+    return error(
+      err instanceof Error ? `Unable to process request: ${err.message}` : 'Unknown server error',
+      500
+    );
+  }
+}
