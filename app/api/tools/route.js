@@ -3,171 +3,623 @@ import { PDFDocument } from 'pdf-lib';
 import { bump } from '../savings/route';
 import { savingsMap, validToolSlugs } from '../../lib/tools';
 
-const webhookEvents = [];
-const MAX_TEXT_LENGTH = 50000;
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const webhookEvents: Array<{ at: number; payload: string }> = [];
 
-function parseOptions(text) {
+const MAX_TEXT_LENGTH = 50_000;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILES = 10;
+
+type JsonValue = Record<string, unknown>;
+
+function json(result: unknown, status = 200): Response {
+  return Response.json({ result }, { status });
+}
+
+function error(message: string, status = 400): Response {
+  return Response.json({ error: message }, { status });
+}
+
+function parseOptions(text: string): JsonValue {
   if (!text.trim()) return {};
   try {
     const parsed = JSON.parse(text);
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }
 }
 
-function isBlockedHost(hostname) {
+function asNumber(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+function isProbablyBase64(text: string): boolean {
+  const normalized = text.replace(/\s+/g, '');
+  if (!normalized || normalized.length % 4 !== 0) return false;
+  if (!/^[A-Za-z0-9+/]+=*$/.test(normalized)) return false;
+  try {
+    const decoded = Buffer.from(normalized, 'base64');
+    return decoded.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function isBlockedHost(hostname: string): boolean {
   const host = (hostname || '').toLowerCase();
+
   if (!host) return true;
   if (host === 'localhost' || host.endsWith('.local')) return true;
   if (host === '0.0.0.0' || host === '127.0.0.1' || host === '::1') return true;
-  if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return true;
-  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)) return true;
+
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+
   return false;
 }
 
-function json(result, status = 200) {
-  return Response.json({ result }, { status });
-}
-
-function error(message, status = 400) {
-  return Response.json({ error: message }, { status });
-}
-
-function sanitizeMarkdown(text) {
-  return text
+function sanitizeMarkdown(text: string): string {
+  const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+    .replace(/>/g, '&gt;');
+
+  return escaped
+    .replace(/^### (.+)$/gim, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gim, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gim, '<h1>$1</h1>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\n/g, '<br/>');
 }
 
-export async function GET(req) {
+function getUploadedFiles(form: FormData): File[] {
+  return form
+    .getAll('file')
+    .filter((v): v is File => v instanceof File);
+}
+
+async function readFileBuffer(file: File): Promise<Buffer> {
+  return Buffer.from(await file.arrayBuffer());
+}
+
+async function loadPdf(file: File): Promise<PDFDocument> {
+  const buf = await readFileBuffer(file);
+  return PDFDocument.load(buf, { ignoreEncryption: true });
+}
+
+function contentDisposition(filename: string): string {
+  return `attachment; filename="${filename.replace(/"/g, '')}"`;
+}
+
+export async function GET(req: Request): Promise<Response> {
   const { searchParams } = new URL(req.url);
+
   if (searchParams.get('slug') === 'webhook-request-bin') {
     return Response.json({ events: webhookEvents.slice(-50) });
   }
+
   return Response.json({ ok: true });
 }
 
-export async function POST(req) {
+export async function POST(req: Request): Promise<Response> {
   const form = await req.formData();
+
   const slug = form.get('slug')?.toString();
   const text = form.get('text')?.toString() || '';
-  const file = form.get('file');
+  const options = parseOptions(text);
+  const files = getUploadedFiles(form);
 
-  if (!slug || !validToolSlugs.has(slug)) return error('Unknown tool.', 404);
-  if (text.length > MAX_TEXT_LENGTH) return error('Text input is too large.');
+  if (!slug || !validToolSlugs.has(slug)) {
+    return error('Unknown tool.', 404);
+  }
+
+  if (text.length > MAX_TEXT_LENGTH) {
+    return error(`Text input is too large. Max ${MAX_TEXT_LENGTH.toLocaleString()} characters.`);
+  }
+
+  if (files.length > MAX_FILES) {
+    return error(`Too many files. Max ${MAX_FILES}.`);
+  }
+
+  for (const file of files) {
+    if (file.size > MAX_FILE_SIZE) {
+      return error(`File "${file.name}" is too large. Max 10 MB.`);
+    }
+  }
 
   if (slug === 'webhook-request-bin') {
     webhookEvents.push({ at: Date.now(), payload: text || 'empty' });
     return json('Webhook payload captured.');
   }
 
-  if (savingsMap[slug]) await bump(savingsMap[slug]);
+  if (savingsMap[slug]) {
+    await bump(savingsMap[slug]);
+  }
 
   try {
+    // -------------------------
+    // TEXT TOOLS
+    // -------------------------
     if (slug === 'word-counter') {
-      return Response.json({ result: { words: (text.trim().match(/\S+/g) || []).length, chars: text.length, lines: text ? text.split('\n').length : 0 } });
+      return json({
+        words: (text.trim().match(/\S+/g) || []).length,
+        chars: text.length,
+        lines: text ? text.split(/\r?\n/).length : 0,
+      });
     }
+
     if (slug === 'text-case-converter') {
-      return Response.json({ result: { upper: text.toUpperCase(), lower: text.toLowerCase(), title: text.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase()) } });
+      return json({
+        upper: text.toUpperCase(),
+        lower: text.toLowerCase(),
+        title: text.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase()),
+      });
     }
-    if (slug === 'duplicate-line-remover') return json([...new Set(text.split('\n'))].join('\n'));
-    if (slug === 'json-formatter') return json(JSON.stringify(JSON.parse(text || '{}'), null, 2));
+
+    if (slug === 'duplicate-line-remover') {
+      const seen = new Set<string>();
+      const lines = text.split(/\r?\n/).filter((line) => {
+        if (seen.has(line)) return false;
+        seen.add(line);
+        return true;
+      });
+      return json(lines.join('\n'));
+    }
+
+    if (slug === 'json-formatter') {
+      if (!text.trim()) return json('{}');
+      try {
+        return json(JSON.stringify(JSON.parse(text), null, 2));
+      } catch {
+        return error('Invalid JSON input.');
+      }
+    }
+
     if (slug === 'base64-encoder-decoder') {
-      const isLikelyBase64 = /^[A-Za-z0-9+/=\s]+$/.test(text) && text.trim().length % 4 === 0;
-      return isLikelyBase64 ? json(Buffer.from(text, 'base64').toString('utf8')) : json(Buffer.from(text, 'utf8').toString('base64'));
+      if (!text.trim()) return json('');
+      if (isProbablyBase64(text)) {
+        try {
+          return json(Buffer.from(text.replace(/\s+/g, ''), 'base64').toString('utf8'));
+        } catch {
+          return error('Invalid base64 input.');
+        }
+      }
+      return json(Buffer.from(text, 'utf8').toString('base64'));
     }
+
     if (slug === 'url-encoder-decoder') {
+      if (!text) return json('');
       try {
         return json(decodeURIComponent(text));
       } catch {
         return json(encodeURIComponent(text));
       }
     }
-    if (slug === 'markdown-previewer') return json(sanitizeMarkdown(text));
-    if (slug === 'article-cleaner') return json(text.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+
+    if (slug === 'markdown-previewer') {
+      return json(sanitizeMarkdown(text));
+    }
+
+    if (slug === 'article-cleaner') {
+      const cleaned = text
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      return json(cleaned);
+    }
+
     if (slug === 'website-screenshot-generator') {
       const raw = text.trim();
       if (!raw) return error('Provide a URL in text input.');
-      let target;
+
+      let target: URL;
       try {
         target = new URL(raw);
       } catch {
-        return error('Invalid URL. Use full https:// URL.');
+        return error('Invalid URL. Use a full http:// or https:// URL.');
       }
-      if (!['http:', 'https:'].includes(target.protocol)) return error('Only http/https URLs are supported.');
-      if (isBlockedHost(target.hostname)) return error('Local/private hosts are blocked for safety.');
+
+      if (!['http:', 'https:'].includes(target.protocol)) {
+        return error('Only http/https URLs are supported.');
+      }
+
+      if (isBlockedHost(target.hostname)) {
+        return error('Local/private hosts are blocked for safety.');
+      }
+
+      // Honest behavior: this endpoint validates and probes the page.
+      // It does not pretend to generate a bitmap screenshot without a browser runtime.
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 8_000);
+
       try {
-        const res = await fetch(target.toString(), { method: 'GET', redirect: 'follow', signal: controller.signal });
-        const html = await res.text();
-        const titleMatch = html.match(/<title>([^<]{0,120})<\/title>/i);
-        return Response.json({ result: { url: target.toString(), status: res.status, ok: res.ok, title: titleMatch?.[1]?.trim() || 'No title found' } });
+        const res = await fetch(target.toString(), {
+          method: 'GET',
+          redirect: 'follow',
+          signal: controller.signal,
+          headers: {
+            'user-agent': 'tool-runtime/1.0',
+          },
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        const html = contentType.includes('text/html') ? await res.text() : '';
+        const titleMatch = html.match(/<title[^>]*>([\s\S]{0,200}?)<\/title>/i);
+
+        return json({
+          url: target.toString(),
+          status: res.status,
+          ok: res.ok,
+          contentType,
+          title: titleMatch?.[1]?.replace(/\s+/g, ' ').trim() || null,
+          note: 'This runtime validates the page and returns metadata. Use a headless browser worker for real screenshots.',
+        });
       } finally {
         clearTimeout(timeout);
       }
     }
 
-    if (!file || typeof file === 'string') return error('Provide a file input for this tool.');
-    if (file.size > MAX_FILE_SIZE) return error('File is too large. Max 10 MB.');
-    const buf = Buffer.from(await file.arrayBuffer());
-    const options = parseOptions(text);
+    // -------------------------
+    // FILE TOOLS
+    // -------------------------
+    const file = files[0];
 
-    if (slug === 'image-format-detector' || slug === 'metadata-viewer') return Response.json({ result: await sharp(buf).metadata() });
+    function requireSingleFile(): Response | null {
+      if (!file) return error('Provide a file input for this tool.');
+      if (files.length > 1) return error('This tool accepts exactly one file.');
+      return null;
+    }
+
+    if (slug === 'image-format-detector' || slug === 'metadata-viewer') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const metadata = await sharp(await readFileBuffer(file)).metadata();
+      return json(metadata);
+    }
+
     if (slug === 'image-compressor') {
-      const quality = Math.max(30, Math.min(90, Number(options.quality) || 60));
-      return new Response(await sharp(buf).jpeg({ quality }).toBuffer(), { headers: { 'Content-Type': 'image/jpeg' } });
-    }
-    if (slug === 'image-converter' || slug === 'heic-to-jpg') return new Response(await sharp(buf).jpeg().toBuffer(), { headers: { 'Content-Type': 'image/jpeg' } });
-    if (slug === 'webp-to-png') return new Response(await sharp(buf).png().toBuffer(), { headers: { 'Content-Type': 'image/png' } });
-    if (slug === 'image-resize') {
-      const width = Math.max(64, Math.min(3000, Number(options.width) || 1280));
-      const height = Number(options.height) ? Math.max(64, Math.min(3000, Number(options.height))) : undefined;
-      return new Response(await sharp(buf).resize(width, height).toBuffer(), { headers: { 'Content-Type': file.type || 'image/png' } });
-    }
-    if (slug === 'image-crop') {
-      const left = Math.max(0, Number(options.left) || 20);
-      const top = Math.max(0, Number(options.top) || 20);
-      const width = Math.max(32, Number(options.width) || 400);
-      const height = Math.max(32, Number(options.height) || 400);
-      return new Response(await sharp(buf).extract({ left, top, width, height }).toBuffer(), { headers: { 'Content-Type': file.type || 'image/png' } });
-    }
-    if (slug === 'image-rotator') return new Response(await sharp(buf).rotate(Number(options.degrees) || 90).toBuffer(), { headers: { 'Content-Type': file.type || 'image/png' } });
-    if (slug === 'background-remover') return new Response(await sharp(buf).grayscale().threshold(210).png().toBuffer(), { headers: { 'Content-Type': 'image/png' } });
-    if (slug === 'image-blur-tool') return new Response(await sharp(buf).blur(Math.max(0.3, Math.min(10, Number(options.blur) || 4))).toBuffer(), { headers: { 'Content-Type': file.type || 'image/png' } });
-    if (slug === 'universal-file-converter') return new Response(await sharp(buf).png().toBuffer(), { headers: { 'Content-Type': 'image/png' } });
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
 
-    if (slug === 'pdf-merge' || slug === 'pdf-split' || slug === 'pdf-compress' || slug === 'pdf-unlock' || slug === 'pdf-to-images') {
-      const pdf = await PDFDocument.load(buf, { ignoreEncryption: true });
-      if (slug === 'pdf-split') {
-        const out = await PDFDocument.create();
-        const [p] = await out.copyPages(pdf, [0]);
-        out.addPage(p);
-        return new Response(await out.save(), { headers: { 'Content-Type': 'application/pdf' } });
+      const quality = clamp(asNumber(options.quality, 60), 30, 90);
+      const output = await sharp(await readFileBuffer(file)).jpeg({ quality }).toBuffer();
+
+      return new Response(output, {
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Content-Disposition': contentDisposition('compressed.jpg'),
+        },
+      });
+    }
+
+    if (slug === 'image-converter' || slug === 'heic-to-jpg') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const output = await sharp(await readFileBuffer(file)).jpeg().toBuffer();
+      return new Response(output, {
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Content-Disposition': contentDisposition('converted.jpg'),
+        },
+      });
+    }
+
+    if (slug === 'webp-to-png') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const output = await sharp(await readFileBuffer(file)).png().toBuffer();
+      return new Response(output, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition': contentDisposition('converted.png'),
+        },
+      });
+    }
+
+    if (slug === 'image-resize') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const width = clamp(asNumber(options.width, 1280), 1, 4000);
+      const rawHeight = options.height == null ? undefined : clamp(asNumber(options.height, 0), 1, 4000);
+
+      const pipeline = sharp(await readFileBuffer(file)).resize({
+        width,
+        height: rawHeight || undefined,
+        fit: 'inside',
+        withoutEnlargement: true,
+      });
+
+      const meta = await sharp(await readFileBuffer(file)).metadata();
+      const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
+
+      let output: Buffer;
+      let contentType: string;
+
+      if (format === 'jpeg') {
+        output = await pipeline.jpeg().toBuffer();
+        contentType = 'image/jpeg';
+      } else if (format === 'webp') {
+        output = await pipeline.webp().toBuffer();
+        contentType = 'image/webp';
+      } else {
+        output = await pipeline.png().toBuffer();
+        contentType = 'image/png';
       }
-      if (slug === 'pdf-merge') {
-        const out = await PDFDocument.create();
+
+      return new Response(output, {
+        headers: {
+          'Content-Type': contentType,
+          'Content-Disposition': contentDisposition(`resized.${format === 'jpeg' ? 'jpg' : format}`),
+        },
+      });
+    }
+
+    if (slug === 'image-crop') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const input = await readFileBuffer(file);
+      const img = sharp(input);
+      const meta = await img.metadata();
+
+      if (!meta.width || !meta.height) {
+        return error('Unable to read image dimensions.');
+      }
+
+      const left = clamp(asNumber(options.left, 0), 0, meta.width - 1);
+      const top = clamp(asNumber(options.top, 0), 0, meta.height - 1);
+      const width = clamp(asNumber(options.width, Math.min(400, meta.width - left)), 1, meta.width - left);
+      const height = clamp(asNumber(options.height, Math.min(400, meta.height - top)), 1, meta.height - top);
+
+      const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
+
+      let output: Buffer;
+      let contentType: string;
+
+      const pipeline = sharp(input).extract({ left, top, width, height });
+
+      if (format === 'jpeg') {
+        output = await pipeline.jpeg().toBuffer();
+        contentType = 'image/jpeg';
+      } else if (format === 'webp') {
+        output = await pipeline.webp().toBuffer();
+        contentType = 'image/webp';
+      } else {
+        output = await pipeline.png().toBuffer();
+        contentType = 'image/png';
+      }
+
+      return new Response(output, {
+        headers: {
+          'Content-Type': contentType,
+          'Content-Disposition': contentDisposition(`cropped.${format === 'jpeg' ? 'jpg' : format}`),
+        },
+      });
+    }
+
+    if (slug === 'image-rotator') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const degrees = asNumber(options.degrees, 90);
+      const meta = await sharp(await readFileBuffer(file)).metadata();
+      const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
+
+      let output: Buffer;
+      let contentType: string;
+
+      const pipeline = sharp(await readFileBuffer(file)).rotate(degrees);
+
+      if (format === 'jpeg') {
+        output = await pipeline.jpeg().toBuffer();
+        contentType = 'image/jpeg';
+      } else if (format === 'webp') {
+        output = await pipeline.webp().toBuffer();
+        contentType = 'image/webp';
+      } else {
+        output = await pipeline.png().toBuffer();
+        contentType = 'image/png';
+      }
+
+      return new Response(output, {
+        headers: {
+          'Content-Type': contentType,
+          'Content-Disposition': contentDisposition(`rotated.${format === 'jpeg' ? 'jpg' : format}`),
+        },
+      });
+    }
+
+    if (slug === 'background-remover') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      // Honest lightweight fallback, not true ML background removal.
+      const output = await sharp(await readFileBuffer(file))
+        .grayscale()
+        .threshold(210)
+        .png()
+        .toBuffer();
+
+      return new Response(output, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition': contentDisposition('background-removed.png'),
+        },
+      });
+    }
+
+    if (slug === 'image-blur-tool') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const blur = clamp(asNumber(options.blur, 4), 0.3, 10);
+      const meta = await sharp(await readFileBuffer(file)).metadata();
+      const format = meta.format === 'jpeg' ? 'jpeg' : meta.format === 'webp' ? 'webp' : 'png';
+
+      let output: Buffer;
+      let contentType: string;
+
+      const pipeline = sharp(await readFileBuffer(file)).blur(blur);
+
+      if (format === 'jpeg') {
+        output = await pipeline.jpeg().toBuffer();
+        contentType = 'image/jpeg';
+      } else if (format === 'webp') {
+        output = await pipeline.webp().toBuffer();
+        contentType = 'image/webp';
+      } else {
+        output = await pipeline.png().toBuffer();
+        contentType = 'image/png';
+      }
+
+      return new Response(output, {
+        headers: {
+          'Content-Type': contentType,
+          'Content-Disposition': contentDisposition(`blurred.${format === 'jpeg' ? 'jpg' : format}`),
+        },
+      });
+    }
+
+    if (slug === 'universal-file-converter') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      // This implementation is image-only.
+      const output = await sharp(await readFileBuffer(file)).png().toBuffer();
+      return new Response(output, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition': contentDisposition('converted.png'),
+        },
+      });
+    }
+
+    // -------------------------
+    // PDF TOOLS
+    // -------------------------
+    if (slug === 'pdf-merge') {
+      if (files.length < 1) return error('Provide at least one PDF file.');
+      const out = await PDFDocument.create();
+
+      for (const f of files) {
+        const pdf = await loadPdf(f);
         const pages = await out.copyPages(pdf, pdf.getPageIndices());
         pages.forEach((p) => out.addPage(p));
-        return new Response(await out.save(), { headers: { 'Content-Type': 'application/pdf' } });
       }
-      return new Response(await pdf.save({ useObjectStreams: true }), { headers: { 'Content-Type': 'application/pdf' } });
+
+      return new Response(await out.save(), {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': contentDisposition('merged.pdf'),
+        },
+      });
     }
 
-    if (slug === 'video-to-gif' || slug === 'video-compressor' || slug === 'video-thumbnail-generator') {
-      return json('Video tooling endpoint is wired, but media workers are not enabled in this runtime yet.');
+    if (slug === 'pdf-split') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const pdf = await loadPdf(file);
+      const pageCount = pdf.getPageCount();
+
+      const page = clamp(asNumber(options.page, 1), 1, pageCount) - 1;
+      const out = await PDFDocument.create();
+      const [copied] = await out.copyPages(pdf, [page]);
+      out.addPage(copied);
+
+      return new Response(await out.save(), {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': contentDisposition(`page-${page + 1}.pdf`),
+        },
+      });
+    }
+
+    if (slug === 'pdf-compress') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const pdf = await loadPdf(file);
+      return new Response(await pdf.save({ useObjectStreams: true, addDefaultPage: false }), {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': contentDisposition('compressed.pdf'),
+        },
+      });
+    }
+
+    if (slug === 'pdf-unlock') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      const pdf = await loadPdf(file);
+      return new Response(await pdf.save({ addDefaultPage: false }), {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': contentDisposition('unlocked.pdf'),
+        },
+      });
+    }
+
+    if (slug === 'pdf-to-images') {
+      const fileErr = requireSingleFile();
+      if (fileErr) return fileErr;
+
+      // Sharp can rasterize PDF pages in some runtimes if PDF support exists in libvips.
+      // We return the first page as PNG to keep the endpoint simple and predictable.
+      try {
+        const density = clamp(asNumber(options.density, 144), 72, 300);
+        const page = Math.max(0, asNumber(options.page, 1) - 1);
+
+        const output = await sharp(await readFileBuffer(file), { density, page })
+          .png()
+          .toBuffer();
+
+        return new Response(output, {
+          headers: {
+            'Content-Type': 'image/png',
+            'Content-Disposition': contentDisposition(`page-${page + 1}.png`),
+          },
+        });
+      } catch {
+        return error('PDF-to-image conversion is not available in this runtime. Install Sharp with PDF rendering support.');
+      }
+    }
+
+    // -------------------------
+    // VIDEO TOOLS
+    // -------------------------
+    if (
+      slug === 'video-to-gif' ||
+      slug === 'video-compressor' ||
+      slug === 'video-thumbnail-generator'
+    ) {
+      return error(
+        `${slug} requires a media worker or ffmpeg-enabled runtime. This route is wired correctly, but video processing is not available here.`,
+        501,
+      );
     }
 
     return json('Tool executed.');
   } catch (err) {
-    return error(`Unable to process ${slug}: ${err.message}`);
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return error(`Unable to process ${slug}: ${message}`, 500);
   }
 }
