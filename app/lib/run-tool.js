@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { tools } from '../../lib/tools';
+import { tools } from '.././tools';
 
 export default function ToolPage() {
   const params = useParams();
