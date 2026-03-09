@@ -74,7 +74,7 @@ export async function POST(req) {
       return error(`Text input is too large. Max ${MAX_TEXT_LENGTH} characters.`);
     }
 
-    // ── Text tools ───────────────────────────────────────────────
+    // ── Text tools ────────────────────────────────────────────────
 
     if (slug === 'webhook-request-bin') {
       webhookEvents.push({ at: Date.now(), payload: text || 'empty' });
@@ -82,19 +82,17 @@ export async function POST(req) {
     }
 
     if (slug === 'word-counter') {
-      return json({
-        words: (text.trim().match(/\S+/g) || []).length,
-        chars: text.length,
-        lines: text ? text.split(/\r?\n/).length : 0,
-      });
+      const words = (text.trim().match(/\S+/g) || []).length;
+      const chars = text.length;
+      const lines = text ? text.split(/\r?\n/).length : 0;
+      return json(`Words:      ${words}\nCharacters: ${chars}\nLines:      ${lines}`);
     }
 
     if (slug === 'text-case-converter') {
-      return json({
-        upper: text.toUpperCase(),
-        lower: text.toLowerCase(),
-        title: text.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase()),
-      });
+      const upper = text.toUpperCase();
+      const lower = text.toLowerCase();
+      const title = text.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
+      return json(`UPPERCASE:\n${upper}\n\nlowercase:\n${lower}\n\nTitle Case:\n${title}`);
     }
 
     if (slug === 'duplicate-line-remover') {
@@ -104,7 +102,8 @@ export async function POST(req) {
         seen.add(line);
         return true;
       });
-      return json(lines.join('\n'));
+      const removed = text.split(/\r?\n/).length - lines.length;
+      return json(`${lines.join('\n')}\n\n— ${removed} duplicate line${removed === 1 ? '' : 's'} removed.`);
     }
 
     if (slug === 'json-formatter') {
@@ -112,7 +111,7 @@ export async function POST(req) {
       try {
         return json(JSON.stringify(JSON.parse(text), null, 2));
       } catch {
-        return error('Invalid JSON input.');
+        return error('Invalid JSON input. Check your syntax and try again.');
       }
     }
 
@@ -120,20 +119,24 @@ export async function POST(req) {
       if (!text.trim()) return json('');
       if (isProbablyBase64(text)) {
         try {
-          return json(Buffer.from(text.replace(/\s+/g, ''), 'base64').toString('utf8'));
+          const decoded = Buffer.from(text.replace(/\s+/g, ''), 'base64').toString('utf8');
+          return json(`Decoded:\n${decoded}`);
         } catch {
           return error('Invalid base64 input.');
         }
       }
-      return json(Buffer.from(text, 'utf8').toString('base64'));
+      const encoded = Buffer.from(text, 'utf8').toString('base64');
+      return json(`Encoded:\n${encoded}`);
     }
 
     if (slug === 'url-encoder-decoder') {
       if (!text) return json('');
       try {
-        return json(decodeURIComponent(text));
+        const decoded = decodeURIComponent(text);
+        return json(`Decoded:\n${decoded}`);
       } catch {
-        return json(encodeURIComponent(text));
+        const encoded = encodeURIComponent(text);
+        return json(`Encoded:\n${encoded}`);
       }
     }
 
@@ -154,7 +157,7 @@ export async function POST(req) {
 
     if (slug === 'website-screenshot-generator') {
       const raw = text.trim();
-      if (!raw) return error('Provide a URL in text input.');
+      if (!raw) return error('Provide a URL in the text input.');
       let target;
       try {
         target = new URL(raw);
@@ -179,19 +182,16 @@ export async function POST(req) {
         const contentType = res.headers.get('content-type') || '';
         const html = contentType.includes('text/html') ? await res.text() : '';
         const titleMatch = html.match(/<title[^>]*>([\s\S]{0,200}?)<\/title>/i);
-        return json({
-          url: target.toString(),
-          status: res.status,
-          ok: res.ok,
-          contentType,
-          title: titleMatch?.[1]?.replace(/\s+/g, ' ').trim() || null,
-        });
+        const title = titleMatch?.[1]?.replace(/\s+/g, ' ').trim() || 'No title found';
+        return json(
+          `URL:          ${target.toString()}\nStatus:       ${res.status} ${res.ok ? '✓ OK' : '✗ Error'}\nContent-Type: ${contentType}\nPage Title:   ${title}`
+        );
       } finally {
         clearTimeout(timeout);
       }
     }
 
-    // ── File tools ───────────────────────────────────────────────
+    // ── File tools ────────────────────────────────────────────────
 
     const file = form.get('file');
 
@@ -204,33 +204,23 @@ export async function POST(req) {
     const mimeType = file.type || 'application/octet-stream';
     const originalName = file.name || 'upload';
 
-    // Metadata / format detection — just reads file info, no processing needed
     if (['image-format-detector', 'metadata-viewer'].includes(slug)) {
-      return json({
-        filename: originalName,
-        mimeType,
-        sizeBytes: buffer.length,
-        sizeKB: (buffer.length / 1024).toFixed(2),
-      });
+      const sizeKB = (buffer.length / 1024).toFixed(2);
+      const sizeMB = (buffer.length / (1024 * 1024)).toFixed(3);
+      return json(
+        `Filename:  ${originalName}\nType:      ${mimeType}\nSize:      ${sizeKB} KB (${sizeMB} MB)\nBytes:     ${buffer.length.toLocaleString()}`
+      );
     }
 
-    // Image tools — echo file back for now (replace with `sharp` later)
     if (
       [
-        'image-compressor',
-        'image-converter',
-        'image-resize',
-        'image-crop',
-        'image-rotator',
-        'image-blur-tool',
-        'heic-to-jpg',
-        'webp-to-png',
-        'background-remover',
+        'image-compressor', 'image-converter', 'image-resize',
+        'image-crop', 'image-rotator', 'image-blur-tool',
+        'heic-to-jpg', 'webp-to-png', 'background-remover',
         'universal-file-converter',
       ].includes(slug)
     ) {
-      // TODO: install `sharp` and add real processing here
-      // For now this returns the original file so the download flow works end-to-end
+      // TODO: install `sharp` and add real image processing here
       return new Response(buffer, {
         status: 200,
         headers: {
@@ -240,22 +230,18 @@ export async function POST(req) {
       });
     }
 
-    // PDF tools
     if (['pdf-merge', 'pdf-split', 'pdf-compress', 'pdf-unlock', 'pdf-to-images'].includes(slug)) {
-      // TODO: install `pdf-lib` and add real processing here
       return error('PDF processing coming soon.', 501);
     }
 
-    // Video tools
     if (['video-to-gif', 'video-compressor', 'video-thumbnail-generator'].includes(slug)) {
-      // TODO: requires ffmpeg — not available on standard Vercel
       return error('Video processing coming soon.', 501);
     }
 
     return error(`Tool "${slug}" is not enabled yet.`, 501);
   } catch (err) {
     return error(
-      err instanceof Error ? `Unable to process request: ${err.message}` : 'Unknown server error',
+      err instanceof Error ? `Unable to process request: ${err.message}` : 'Unknown server error.',
       500
     );
   }
