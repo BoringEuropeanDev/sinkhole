@@ -3,11 +3,77 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { tools } from '../../lib/tools';
-import {
-  getInitialOptions,
-  getAcceptValue,
-  runToolRequest,
-} from '../../lib/tool-runtime';
+
+function getInitialOptions(tool) {
+  if (!tool?.options?.length) return {};
+  return Object.fromEntries(
+    tool.options.map((opt) => [opt.key, opt.defaultValue ?? ''])
+  );
+}
+
+function getAcceptValue(slug) {
+  if (
+    [
+      'image-compressor',
+      'image-converter',
+      'image-resize',
+      'image-crop',
+      'image-rotator',
+      'image-format-detector',
+      'background-remover',
+      'image-blur-tool',
+      'universal-file-converter',
+      'heic-to-jpg',
+      'webp-to-png',
+      'metadata-viewer',
+    ].includes(slug)
+  ) {
+    return 'image/*,.heic,.heif,.webp,.jpg,.jpeg,.png';
+  }
+
+  if (
+    ['pdf-merge', 'pdf-split', 'pdf-compress', 'pdf-unlock', 'pdf-to-images'].includes(slug)
+  ) {
+    return '.pdf,application/pdf';
+  }
+
+  if (
+    ['video-to-gif', 'video-compressor', 'video-thumbnail-generator'].includes(slug)
+  ) {
+    return 'video/*';
+  }
+
+  return undefined;
+}
+
+function buildTextPayload(tool, input, optionValues) {
+  if (tool.mode === 'text') {
+    return input || '';
+  }
+
+  const cleaned = {};
+
+  for (const [key, value] of Object.entries(optionValues || {})) {
+    if (value === '' || value === null || value === undefined) continue;
+
+    const option = tool.options?.find((opt) => opt.key === key);
+
+    if (option?.type === 'number') {
+      const n = Number(value);
+      if (Number.isFinite(n)) cleaned[key] = n;
+      continue;
+    }
+
+    if (option?.type === 'boolean') {
+      cleaned[key] = Boolean(value);
+      continue;
+    }
+
+    cleaned[key] = value;
+  }
+
+  return JSON.stringify(cleaned);
+}
 
 export default function ToolPage() {
   const params = useParams();
@@ -24,6 +90,7 @@ export default function ToolPage() {
 
   useEffect(() => {
     if (!tool) return;
+
     setInput('');
     setFiles([]);
     setOptionValues(getInitialOptions(tool));
@@ -56,33 +123,70 @@ export default function ToolPage() {
     setRunning(true);
     setResult('Working...');
 
-    if (downloadUrl) {
-      URL.revokeObjectURL(downloadUrl);
-      setDownloadUrl('');
-      setDownloadName('');
-    }
+    try {
+      if (downloadUrl) {
+        URL.revokeObjectURL(downloadUrl);
+        setDownloadUrl('');
+        setDownloadName('');
+      }
 
-    const response = await runToolRequest({
-      tool,
-      input,
-      files,
-      optionValues,
-    });
+      if (tool.mode === 'file' && files.length === 0) {
+        setResult('Please choose a file first.');
+        return;
+      }
 
-    if (!response.ok) {
-      setResult(response.message || 'Tool request failed.');
+      if (tool.mode === 'text' && !String(input || '').trim()) {
+        setResult('Please enter some input first.');
+        return;
+      }
+
+      const body = new FormData();
+      body.append('slug', tool.slug);
+      body.append('text', buildTextPayload(tool, input, optionValues));
+
+      for (const file of files) {
+        body.append('file', file);
+      }
+
+      const res = await fetch('/api/tools', {
+        method: 'POST',
+        body,
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+
+      if (!res.ok) {
+        if (contentType.includes('application/json')) {
+          const data = await res.json().catch(() => null);
+          setResult(String(data?.error || `Tool request failed with status ${res.status}.`));
+        } else {
+          const text = await res.text().catch(() => '');
+          setResult(text || `Tool request failed with status ${res.status}.`);
+        }
+        return;
+      }
+
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        const value = data?.result;
+        setResult(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const disposition = res.headers.get('content-disposition') || '';
+      const match = disposition.match(/filename="([^"]+)"/i);
+      const filename = match?.[1] || `tool-output-${tool.slug}`;
+
+      setDownloadUrl(url);
+      setDownloadName(filename);
+      setResult(`Download ready: ${filename}`);
+    } catch (err) {
+      setResult(err instanceof Error ? err.message : 'Unexpected error while running tool.');
+    } finally {
       setRunning(false);
-      return;
     }
-
-    setResult(response.display || 'Done.');
-
-    if (response.kind === 'file') {
-      setDownloadUrl(response.url);
-      setDownloadName(response.filename);
-    }
-
-    setRunning(false);
   }
 
   return (
