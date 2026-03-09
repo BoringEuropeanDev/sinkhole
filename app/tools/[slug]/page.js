@@ -1,46 +1,61 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { tools } from '../../lib/tools';
-import { getInitialOptions, getAcceptValue, runTool } from '../../lib/run-tool';
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { tools } from "../../lib/tools";
+import {
+  getInitialOptions,
+  getAcceptValue,
+  runTool,
+} from "../../lib/run-tool";
 
 export default function ToolPage() {
   const params = useParams();
-  const slug = Array.isArray(params?.slug) ? params.slug[0] : params?.slug;
-  const tool = useMemo(() => tools.find((t) => t.slug === slug), [slug]);
 
-  const [input, setInput] = useState('');
+  // slug comes from the URL: /tools/some-tool-slug
+  const slug = Array.isArray(params?.slug) ? params.slug[0] : params?.slug;
+
+  // Find the tool details in your tools list
+  const tool = useMemo(
+    () => tools.find((t) => t.slug === slug),
+    [slug]
+  );
+
+  // State: what the user typed or uploaded, options, result, etc.
+  const [input, setInput] = useState("");
   const [files, setFiles] = useState([]);
   const [optionValues, setOptionValues] = useState({});
-  const [result, setResult] = useState('Run a tool to see the output.');
+  const [result, setResult] = useState("Run a tool to see the output.");
   const [running, setRunning] = useState(false);
-  const [downloadUrl, setDownloadUrl] = useState('');
-  const [downloadName, setDownloadName] = useState('');
+  const [downloadUrl, setDownloadUrl] = useState("");
+  const [downloadName, setDownloadName] = useState("");
   const [debug, setDebug] = useState(null);
 
+  // Whenever the tool changes (different slug), reset the UI
   useEffect(() => {
     if (!tool) return;
 
-    setInput('');
+    setInput("");
     setFiles([]);
     setOptionValues(getInitialOptions(tool));
-    setResult('Run a tool to see the output.');
+    setResult("Run a tool to see the output.");
     setDebug(null);
 
     if (downloadUrl) {
       URL.revokeObjectURL(downloadUrl);
-      setDownloadUrl('');
-      setDownloadName('');
+      setDownloadUrl("");
+      setDownloadName("");
     }
   }, [tool]);
 
+  // Clean up any previous download URL when leaving the page
   useEffect(() => {
     return () => {
       if (downloadUrl) URL.revokeObjectURL(downloadUrl);
     };
   }, [downloadUrl]);
 
+  // If the slug doesn’t match any tool, show an error
   if (!tool) {
     return (
       <div className="page">
@@ -50,16 +65,19 @@ export default function ToolPage() {
   }
 
   async function handleRunTool() {
+    // If already running, block double clicks
     if (running) return;
 
+    console.log("Run Tool clicked for:", tool.slug); // <-- test that click works
+
     setRunning(true);
-    setResult('Working...');
+    setResult("Working...");
     setDebug(null);
 
     if (downloadUrl) {
       URL.revokeObjectURL(downloadUrl);
-      setDownloadUrl('');
-      setDownloadName('');
+      setDownloadUrl("");
+      setDownloadName("");
     }
 
     try {
@@ -73,13 +91,13 @@ export default function ToolPage() {
       setDebug(response.debug || null);
 
       if (!response.ok) {
-        setResult(response.message || 'Tool request failed.');
+        setResult(response.message || "Tool request failed.");
         return;
       }
 
-      setResult(response.display || 'Done.');
+      setResult(response.display || "Done.");
 
-      if (response.kind === 'file') {
+      if (response.kind === "file") {
         setDownloadUrl(response.url);
         setDownloadName(response.filename);
       }
@@ -94,7 +112,7 @@ export default function ToolPage() {
       <p>{tool.description}</p>
 
       <div className="toolShell">
-        {tool.mode === 'text' && (
+        {tool.mode === "text" && (
           <label>
             Input
             <textarea
@@ -106,7 +124,7 @@ export default function ToolPage() {
           </label>
         )}
 
-        {tool.mode === 'file' && (
+        {tool.mode === "file" && (
           <>
             {!!tool.options?.length && (
               <div className="toolOptions">
@@ -114,7 +132,7 @@ export default function ToolPage() {
                 {tool.options.map((opt) => (
                   <label key={opt.key}>
                     {opt.label}
-                    {opt.type === 'boolean' ? (
+                    {opt.type === "boolean" ? (
                       <input
                         type="checkbox"
                         checked={Boolean(optionValues[opt.key])}
@@ -127,8 +145,8 @@ export default function ToolPage() {
                       />
                     ) : (
                       <input
-                        type={opt.type === 'number' ? 'number' : 'text'}
-                        value={optionValues[opt.key] ?? ''}
+                        type={opt.type === "number" ? "number" : "text"}
+                        value={optionValues[opt.key] ?? ""}
                         min={opt.min}
                         max={opt.max}
                         step={opt.step}
@@ -147,7 +165,7 @@ export default function ToolPage() {
             )}
 
             <label>
-              {tool.acceptsMultipleFiles ? 'Files' : 'File'}
+              {tool.acceptsMultipleFiles ? "Files" : "File"}
               <input
                 type="file"
                 accept={getAcceptValue(tool.slug)}
@@ -158,8 +176,13 @@ export default function ToolPage() {
           </>
         )}
 
-        <button type="button" className="btn" onClick={handleRunTool} disabled={running}>
-          {running ? 'Running...' : 'Run Tool'}
+        <button
+          type="button"
+          className="btn"
+          onClick={handleRunTool}
+          disabled={running}
+        >
+          {running ? "Running..." : "Run Tool"}
         </button>
 
         {downloadUrl && (
