@@ -1,4 +1,4 @@
-import { tools } from '../lib/tools';
+import { tools } from './lib/tools';
 
 export default function sitemap() {
   const base = 'https://www.sinkhole.app';
@@ -11,8 +11,8 @@ export default function sitemap() {
   }));
 
   return [
-    { url: base,                  lastModified: new Date(), changeFrequency: 'weekly', priority: 1.0 },
-    { url: `${base}/tools`,       lastModified: new Date(), changeFrequency: 'weekly', priority: 0.8 },
+    { url: base,                  lastModified: new Date(), changeFrequency: 'weekly',  priority: 1.0 },
+    { url: `${base}/tools`,       lastModified: new Date(), changeFrequency: 'weekly',  priority: 0.8 },
     { url: `${base}/open-source`, lastModified: new Date(), changeFrequency: 'monthly', priority: 0.5 },
     ...toolPages,
   ];
