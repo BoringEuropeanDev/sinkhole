@@ -25,7 +25,7 @@ export default function RootLayout({ children }) {
           <div>
             <h4>Open source, long term</h4>
             <p>MIT licensed and community maintained, so the toolkit stays usable for everyone.</p>
-            <a href="https://github.com" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+            <a href="https://github.com/BoringEuropeanDev/sinkhole" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
           </div>
           <div>
             <h4>Community savings</h4>
